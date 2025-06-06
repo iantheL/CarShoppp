@@ -22,7 +22,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
-            password BLOB NOT NULL
+            password BLOB NOT NULL,
+            role TEXT NOT NULL DEFAULT 'customer'
         )
     ''')
     # Cars Table
@@ -144,6 +145,14 @@ class CarShopApp:
         back_btn = tk.Button(frame, text="Back to Login", bg=COLOR_BTN_BG, fg=COLOR_BTN_FG, font=('Helvetica', 12), command=self.create_login_screen)
         back_btn.grid(row=5, column=0, columnspan=2, pady=5, sticky='ew')
 
+        self.var_checkbox = tk.IntVar()
+
+        self.is_admin_cbox = tk.Checkbutton(frame, text="Register as admin", bg=COLOR_BTN_BG, fg=COLOR_FG, var=self.var_checkbox, onvalue=1, offvalue=0 )
+        self.is_admin_cbox.grid(row=6, column=0, columnspan=2, pady=5, sticky='ew')
+
+        self.is_admin_cbox.config(bg="lightgrey", fg="blue", font=("Arial", 12),
+                           selectcolor="green", relief="raised", padx=10, pady=5)
+
     def login(self):
         username = self.entry_username.get().strip()
         password = self.entry_password.get()
@@ -151,11 +160,12 @@ class CarShopApp:
             messagebox.showwarning("Input Error", "Please enter username and password.")
             return
         c = self.conn.cursor()
-        c.execute("SELECT id, password FROM users WHERE username=?", (username,))
+        c.execute("SELECT id, password, role FROM users WHERE username=?", (username,))
         row = c.fetchone()
         if row and verify_password(password, row[1]):
             self.user_id = row[0]
             self.username = username
+            self.user_role = row[2]
             self.create_dashboard()
         else:
             messagebox.showerror("Login Failed", "Invalid username or password.")
@@ -164,16 +174,19 @@ class CarShopApp:
         username = self.entry_reg_username.get().strip()
         password = self.entry_reg_password.get()
         confirm = self.entry_reg_confirm.get()
+        role = "customer"
         if not username or not password or not confirm:
             messagebox.showwarning("Input Error", "Please fill all fields.")
             return
         if password != confirm:
             messagebox.showwarning("Input Error", "Passwords do not match.")
             return
+        if self.var_checkbox.get() == 1:
+            role = 'admin'
         c = self.conn.cursor()
         try:
             hashed_pw = hash_password(password)
-            c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (username, hashed_pw, role))
             self.conn.commit()
             messagebox.showinfo("Success", "Registered successfully! You can now login.")
             self.create_login_screen()
@@ -193,11 +206,63 @@ class CarShopApp:
         contact_btn = tk.Button(top_frame, text="Contact Us", bg=COLOR_BTN_BG, fg=COLOR_BTN_FG, font=('Helvetica', 12), command=self.create_contact_screen)
         contact_btn.pack(side='right', padx=20)
 
+        if self.user_role == "admin":
+            messages_btn = tk.Button(top_frame, text="Messages", bg=COLOR_BTN_BG, fg=COLOR_BTN_FG, font=('Helvetica', 12), command=self.view_messages)
+            messages_btn.pack(side='right', padx=20)
+
         # Cars List
         self.car_list_frame = tk.Frame(self.root, bg=COLOR_BG)
         self.car_list_frame.pack(fill='both', expand=True, padx=20, pady=10)
 
         self.load_cars()
+
+    def view_messages(self):
+        messages_window = tk.Toplevel(self.root)
+        messages_window.title("Messages")
+        messages_window.geometry("1280x720")
+
+        top_frame = tk.Frame(messages_window, bg=COLOR_BG)
+        top_frame.pack(fill='x', pady=10)
+
+        welcome_label = tk.Label(top_frame, text="Messages", font=('Helvetica', 18, 'bold'),
+                                 fg=COLOR_FG, bg=COLOR_BG)
+        welcome_label.pack(side='left', padx=20)
+
+        table_columns = ("ID", "Username", "Message")
+
+        message_list = ttk.Treeview(messages_window, show="headings", columns=table_columns)
+
+        for column in table_columns:
+            message_list.heading(column, text=column)
+
+            if column == "ID":
+                message_list.column(column, width=40)
+            elif column == "Username":
+                message_list.column(column, width=120)
+
+        message_list.pack(fill='both', expand=True, padx=20, pady=10)
+
+        def get_messages():
+            try:
+                c = self.conn.cursor()
+                c.execute("SELECT * FROM messages")
+                messages_data = c.fetchall()
+
+                if not messages_data:
+                    return
+
+                for messages in messages_data:
+                    c.execute('SELECT username FROM users WHERE id=?', (messages[1],))
+                    username = c.fetchone()[0]
+
+                    message_list.insert("", "end", values=(messages[0], username, messages[2]))
+            except Exception as e:
+                print(e)
+                return
+
+        get_messages()
+        messages_window.mainloop()
+
 
     def load_cars(self):
         for widget in self.car_list_frame.winfo_children():
